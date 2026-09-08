@@ -1,0 +1,38 @@
+name: Build PSP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'psp/**'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  psp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile with PSPDEV
+        run: |
+          docker run --rm \
+            -v "$PWD:/source" \
+            -w /source/psp \
+            pspdev/pspdev:latest \
+            sh -c 'psp-cmake -S . -B build && cmake --build build -j2'
+
+      - name: Prepare Memory Stick layout
+        run: |
+          mkdir -p release/PSP/GAME/MangaDock release/MANGA
+          cp psp/build/EBOOT.PBP release/PSP/GAME/MangaDock/
+          cp psp/font.ttf release/PSP/GAME/MangaDock/
+          cp psp/FONT-LICENSE.txt release/PSP/GAME/MangaDock/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MangaDock-PSP
+          path: release/
+          if-no-files-found: error
