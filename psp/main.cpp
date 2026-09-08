@@ -19,9 +19,6 @@
 #ifdef __PSP__
 #include <pspkernel.h>
 #include <pspctrl.h>
-PSP_MODULE_INFO("MangaDock", 0, 0, 1);
-PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
-PSP_HEAP_SIZE_KB(-4096);
 #endif
 
 static volatile bool running = true;
