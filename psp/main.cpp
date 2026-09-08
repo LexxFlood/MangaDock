@@ -150,7 +150,27 @@ public:
         }
         auto pixels=stbi_load_from_memory(bytes.data(),(int)bytes.size(),&w,&h,&channels,4);
         if(!pixels){notice="Falha ao decodificar a imagem.";return nullptr;}
-        auto surface=SDL_CreateRGBSurfaceWithFormatFrom(pixels,w,h,32,w*4,SDL_PIXELFORMAT_RGBA32);
+        // The PSP GU accepts textures up to 512x512. Scale larger manga pages once
+        // on load so the accelerated, double-buffered renderer can be used.
+        std::vector<unsigned char> scaled;
+        const unsigned char* texturePixels=pixels;
+        if(w>512 || h>512) {
+            const int sourceW=w,sourceH=h;
+            const float factor=std::min(512.f/sourceW,512.f/sourceH);
+            const int targetW=std::max(1,(int)std::floor(sourceW*factor));
+            const int targetH=std::max(1,(int)std::floor(sourceH*factor));
+            scaled.resize((size_t)targetW*targetH*4);
+            for(int y=0;y<targetH;++y) {
+                const int sy=std::min(sourceH-1,y*sourceH/targetH);
+                for(int x=0;x<targetW;++x) {
+                    const int sx=std::min(sourceW-1,x*sourceW/targetW);
+                    std::memcpy(&scaled[((size_t)y*targetW+x)*4],
+                                &pixels[((size_t)sy*sourceW+sx)*4],4);
+                }
+            }
+            w=targetW;h=targetH;texturePixels=scaled.data();
+        }
+        auto surface=SDL_CreateRGBSurfaceWithFormatFrom((void*)texturePixels,w,h,32,w*4,SDL_PIXELFORMAT_RGBA32);
         auto texture=surface?SDL_CreateTextureFromSurface(renderer,surface):nullptr;
         if(surface)SDL_FreeSurface(surface);stbi_image_free(pixels);
         if(!texture)notice="Memoria insuficiente. Reduza a pagina no PC.";
@@ -193,8 +213,12 @@ int main(int argc,char** argv) {
     mkdir("state",0777);mkdir(root.c_str(),0777);
     if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER)<0)return 1;
     auto window=SDL_CreateWindow("MangaDock",0,0,480,272,0);
-    // Software renderer accepts pages larger than the PSP GU 512-pixel texture limit.
+#ifdef __PSP__
+    // The PSP backend swaps two VRAM buffers and waits for vblank, preventing flicker.
+    renderer=window?SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC):nullptr;
+#else
     renderer=window?SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE):nullptr;
+#endif
     if(!renderer || TTF_Init()<0){SDL_Quit();return 2;}
     font=TTF_OpenFont("font.ttf",12);
     if(!font){std::fprintf(stderr,"font.ttf ausente\n");SDL_Quit();return 3;}
@@ -265,7 +289,12 @@ int main(int argc,char** argv) {
             rect(0,244,480,28,{25,34,53,255});text(9,251,"X abrir   O pasta anterior   /\\ favorito   HOME sair");
         }
         if(!notice.empty()){rect(0,218,480,26,{103,42,43,255});text(6,224,notice);}
-        SDL_RenderPresent(renderer);SDL_Delay(16);
+        SDL_RenderPresent(renderer);
+#ifdef __PSP__
+        SDL_Delay(1); // VSync performs the frame pacing on hardware.
+#else
+        SDL_Delay(16);
+#endif
     }
     if(reading && page)saveState(book.path,book.state);
     if(page)SDL_DestroyTexture(page);book.close();TTF_CloseFont(font);TTF_Quit();SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
